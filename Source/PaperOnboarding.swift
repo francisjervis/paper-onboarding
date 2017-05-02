@@ -8,61 +8,133 @@
 
 import UIKit
 
-//..
-//
-public typealias OnboardingItemInfo = (imageName: String, title: String, description: String, iconName: String, color: UIColor)
+public typealias OnboardingItemInfo = (imageName: UIImage, title: String, description: String, iconName: UIImage, color: UIColor, titleColor: UIColor, descriptionColor: UIColor, titleFont: UIFont, descriptionFont: UIFont)
 
+/**
+ *  The PaperOnboardingDataSource protocol is adopted by an object that mediates the application’s data model for a PaperOnboarding object.
+ The data source information it needs to construct and modify a PaperOnboarding.
+ */
 public protocol PaperOnboardingDataSource {
-  func onboardingItemAtIndex(index: Int) -> OnboardingItemInfo
+  /**
+   Asks the data source to return the number of items.
+   
+   - parameter index: An index of item in PaperOnboarding.
+   
+   - returns: The number of items in PaperOnboarding.
+   */
+  func onboardingItemsCount() -> Int
+  
+  /**
+   Asks the data source for configureation item.
+   
+   - parameter index: An index of item in PaperOnboarding.
+   
+   - returns: configuration info for item
+   */
+  func onboardingItemAtIndex(_ index: Int) -> OnboardingItemInfo
 }
 
-public class PaperOnboarding: UIView {
+/**
+ *  The delegate of a PaperOnboarding object must adopt the PaperOnboardingDelegate protocol. Optional methods of the
+ protocol allow the delegate to manage items, configure items, and perform other actions.
+ */
+public protocol PaperOnboardingDelegate {
+  /**
+   Tells the delegate that the paperOnbording start scrolling.
+   
+   - parameter index: An curretn index item
+   */
+  func onboardingWillTransitonToIndex(_ index: Int)
   
-  @IBOutlet public var dataSource: AnyObject? //PaperOnboardingDataSource
+  /**
+   Tells the delegate that the specified item is now selected
+   
+   - parameter index: An curretn index item
+   */
+  func onboardingDidTransitonToIndex(_ index: Int)
   
-  public private(set) var currentIndex: Int = 0
-  @IBInspectable var itemsCount: Int = 3
+  /**
+   Tells the delegate the PaperOnboarding is about to draw a item for a particular row. Use this method for configure items
+   
+   - parameter item:  A OnboardingContentViewItem object that PaperOnboarding is going to use when drawing the row.
+   - parameter index: An curretn index item
+   */
+  func onboardingConfigurationItem(_ item: OnboardingContentViewItem, index: Int)
+}
+
+///An instance of PaperOnboarding which display collection of information.
+open class PaperOnboarding: UIView {
   
-  private var itemsInfo: [OnboardingItemInfo]?
+  ///  The object that acts as the data source of the  PaperOnboardingDataSource.
+  @IBOutlet open var dataSource: AnyObject? {
+    didSet {
+      commonInit()
+    }
+  }
   
-  private var pageViewBottomConstant: CGFloat = 32
-  private var pageViewSelectedRadius: CGFloat = 22
-  private var pageViewRadius: CGFloat         = 8
+  /// The object that acts as the delegate of the PaperOnboarding. PaperOnboardingDelegate protocol
+  @IBOutlet open var delegate: AnyObject?
   
-  private var fillAnimationView: FillAnimationView?
-  private var pageView: PageView?
-  private var gestureControl: GestureControl?
-  private var contentView: OnboardingContentView?
+  /// current index item
+  open fileprivate(set) var currentIndex: Int = 0
+  var itemsCount: Int = 3
   
-  public init(itemsCount: Int = 3, dataSource: PaperOnboardingDataSource) {
+  fileprivate var itemsInfo: [OnboardingItemInfo]?
+  
+  fileprivate var pageViewBottomConstant: CGFloat = 32
+  fileprivate var pageViewSelectedRadius: CGFloat = 22
+  fileprivate var pageViewRadius: CGFloat         = 8
+  
+  fileprivate var fillAnimationView: FillAnimationView?
+  fileprivate var pageView: PageView?
+  fileprivate var gestureControl: GestureControl?
+  fileprivate var contentView: OnboardingContentView?
+  
+  /**
+   Initializes and returns a PaperOnboarding object with items count.
+   
+   - parameter itemsCount: The number of items in PaperOnboarding.
+   
+   - returns: Returns an initialized PaperOnboading object
+   */
+  public init(itemsCount: Int = 3) {
     super.init(frame: CGRect.zero)
-    self.dataSource = dataSource as? AnyObject
     self.itemsCount = itemsCount
-    commonInit()
   }
   
   required public init?(coder aDecoder: NSCoder) {
     super.init(coder: aDecoder)
   }
-  
-  public override func awakeFromNib() {
-    super.awakeFromNib()
-    commonInit()
-  }
 }
 
-// MARK: public
+// MARK: methods
 
 public extension PaperOnboarding {
   
-  func currentIndex(index: Int, animated: Bool) {
+  /**
+   Scrolls through the PaperOnboarding until a index is at a particular location on the screen.
+   
+   - parameter index:    Scrolling to a curretn index item.
+   - parameter animated: True if you want to animate the change in position; false if it should be immediate.
+   */
+  func currentIndex(_ index: Int, animated: Bool) {
     if 0 ..< itemsCount ~= index {
+      (self.delegate as? PaperOnboardingDelegate)?.onboardingWillTransitonToIndex(index)
       currentIndex = index
+      CATransaction.begin()
+      
+      
+      CATransaction.setCompletionBlock({
+        (self.delegate as? PaperOnboardingDelegate)?.onboardingDidTransitonToIndex(index)
+      })
+      
+      
       if let postion = pageView?.positionItemIndex(index, onView: self) {
-        fillAnimationView?.fillAnimation(bakcgroundColor(currentIndex), centerPosition: postion, duration: 0.5)
+        fillAnimationView?.fillAnimation(backgroundColor(currentIndex), centerPosition: postion, duration: 0.5)
       }
       pageView?.currentIndex(index, animated: animated)
       contentView?.currentItem(index, animated: animated)
+      CATransaction.commit()
     }
     
   }
@@ -71,10 +143,14 @@ public extension PaperOnboarding {
 
 extension PaperOnboarding {
   
-  private func commonInit() {
+  fileprivate func commonInit() {
+    if case let dataSource as PaperOnboardingDataSource = self.dataSource {
+      itemsCount = dataSource.onboardingItemsCount()
+    }
+    
     itemsInfo = createItemsInfo()
     translatesAutoresizingMaskIntoConstraints = false
-    fillAnimationView = FillAnimationView.animavtionViewOnView(self, color: bakcgroundColor(currentIndex))
+    fillAnimationView = FillAnimationView.animavtionViewOnView(self, color: backgroundColor(currentIndex))
     contentView = OnboardingContentView.contentViewOnView(self,
                                                           delegate: self,
                                                           itemsCount: itemsCount,
@@ -83,21 +159,21 @@ extension PaperOnboarding {
     gestureControl = GestureControl(view: self, delegate: self)
   }
   
-  private func createPageView() -> PageView {
+  fileprivate func createPageView() -> PageView {
     let pageView = PageView.pageViewOnView(self,
-                                          itemsCount: itemsCount,
-                                          bottomConstant: pageViewBottomConstant * -1,
-                                          radius:pageViewRadius,
-                                          selectedRadius: pageViewSelectedRadius)
+                                           itemsCount: itemsCount,
+                                           bottomConstant: pageViewBottomConstant * -1,
+                                           radius:pageViewRadius,
+                                           selectedRadius: pageViewSelectedRadius)
+    
     pageView.configuration = { item, index in
-      if let iconName = self.itemsInfo?[index].iconName {
-        item.imageView?.image = UIImage(named: iconName)
-      }
+        item.imageView?.image = self.itemsInfo?[index].iconName
     }
+    
     return pageView
   }
-
-  private func createItemsInfo() -> [OnboardingItemInfo] {
+  
+  fileprivate func createItemsInfo() -> [OnboardingItemInfo] {
     guard case let dataSource as PaperOnboardingDataSource = self.dataSource else {
       fatalError("set dataSource")
     }
@@ -109,31 +185,30 @@ extension PaperOnboarding {
     }
     return items
   }
-
+  
 }
 
-// MARK: helpers 
+// MARK: helpers
 
 extension PaperOnboarding {
   
-  private func bakcgroundColor(index: Int) -> UIColor {
+  fileprivate func backgroundColor(_ index: Int) -> UIColor {
     guard let color = itemsInfo?[index].color else {
-      return .blackColor()
+      return .black
     }
     return color
   }
-
 }
 
 // MARK: GestureControlDelegate
 
 extension PaperOnboarding: GestureControlDelegate {
   
-  func gestureControlDidSwipe(direction: UISwipeGestureRecognizerDirection) {
+  func gestureControlDidSwipe(_ direction: UISwipeGestureRecognizerDirection) {
     switch direction {
-    case UISwipeGestureRecognizerDirection.Right:
+    case UISwipeGestureRecognizerDirection.right:
       currentIndex(currentIndex - 1, animated: true)
-    case UISwipeGestureRecognizerDirection.Left:
+    case UISwipeGestureRecognizerDirection.left:
       currentIndex(currentIndex + 1, animated: true)
     default:
       fatalError()
@@ -141,11 +216,16 @@ extension PaperOnboarding: GestureControlDelegate {
   }
 }
 
-// MARK: OnboardingDelegate 
+// MARK: OnboardingDelegate
 
 extension PaperOnboarding: OnboardingContentViewDelegate {
   
-  func onboardingItemAtIndex(index: Int) -> OnboardingItemInfo? {
+  func onboardingItemAtIndex(_ index: Int) -> OnboardingItemInfo? {
     return itemsInfo?[index]
   }
+  
+  func onboardingConfigurationItem(_ item: OnboardingContentViewItem, index: Int) {
+    delegate?.onboardingConfigurationItem(item, index: index)
+  }
+  
 }
